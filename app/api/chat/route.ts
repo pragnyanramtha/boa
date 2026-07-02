@@ -37,18 +37,41 @@ GUIDELINES:
 8. Keep responses professional and actionable. End with a recommendation when appropriate.`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  try {
+    const { messages }: { messages: UIMessage[] } = await req.json();
 
-  const result = streamText({
-    model: google("gemma-4-31b-it"),
-    messages: await convertToModelMessages(messages),
-    system: SYSTEM_PROMPT,
-    tools,
-    stopWhen: isStepCount(5),
-    experimental_transform: undefined, // disable default transforms
-  });
+    // Validate DB is configured before streaming
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      return new Response(
+        JSON.stringify({
+          error: "Database not configured",
+          message: "Please set DATABASE_URL in .env.local with your Neon connection string, then run `pnpm db:push` and `pnpm tsx db/seed.ts`.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
-  return createUIMessageStreamResponse({
-    stream: toUIMessageStream({ stream: result.stream }),
-  });
+    const result = streamText({
+      model: google("gemma-4-31b-it"),
+      messages: await convertToModelMessages(messages),
+      system: SYSTEM_PROMPT,
+      tools,
+      stopWhen: isStepCount(5),
+      experimental_transform: undefined, // disable default transforms
+    });
+
+    return createUIMessageStreamResponse({
+      stream: toUIMessageStream({ stream: result.stream }),
+    });
+  } catch (error) {
+    console.error("Chat API error:", error);
+    return new Response(
+      JSON.stringify({
+        error: "Internal error",
+        message: error instanceof Error ? error.message : "Something went wrong. Please try again.",
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 }

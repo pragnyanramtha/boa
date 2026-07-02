@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI COO — Business Operations Agent
 
-## Getting Started
+An AI-powered business operations assistant that orchestrates multi-tool queries across inventory, sales, finance, procurement, and customer data.
 
-First, run the development server:
+Built with Next.js 16, AI SDK v7, Drizzle ORM + Neon, and Gemini API (Gemma 4 31B).
+
+## Stack
+
+- **Framework:** Next.js 16 (App Router, TypeScript, Tailwind v4)
+- **AI:** Vercel AI SDK v7 (`streamText`, `tool()`, `useChat`)
+- **LLM:** Gemma 4 31B via `@ai-sdk/google` (Gemini API)
+- **Database:** Neon (serverless Postgres) + Drizzle ORM
+- **Data:** Faker-generated seed data
+
+## Tools
+
+| Tool | Description |
+|------|-------------|
+| `checkInventory` | Query stock by category, warehouse, low-stock threshold |
+| `forecastDemand` | ML-based demand forecast for any product |
+| `analyzeProfitability` | Product-level profit margin analysis |
+| `trackExpenses` | Expense overview by category, date range, department |
+| `evaluateSupplier` | Supplier reliability scores with on-time rate, quality, lead time |
+| `analyzeSales` | Revenue trends, top SKUs, category breakdowns |
+| `segmentCustomers` | Customer segmentation by total spent, order count, tenure |
+| `sendNotification` | Create or list system notifications |
+| `createWorkflow` | Create or list approval workflows |
+
+The AI supervisor chains tools together autonomously with up to 5 sequential steps.
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Create `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+DATABASE_URL=postgres://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb
+GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Push schema and seed data:
 
-## Learn More
+```bash
+pnpm db:push
+pnpm tsx db/seed.ts
+```
 
-To learn more about Next.js, take a look at the following resources:
+Run:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pnpm dev
+```

@@ -1,450 +1,1016 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import {
+  ComposerAddAttachment,
+  ComposerAttachments,
+  UserMessageAttachments,
+} from "@/components/assistant-ui/attachment";
+import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { DotMatrix } from "@/components/assistant-ui/dot-matrix";
+import { MessageTiming } from "@/components/assistant-ui/message-timing";
+import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import {
+  ToolGroupContent,
+  ToolGroupRoot,
+  ToolGroupTrigger,
+} from "@/components/assistant-ui/tool-group";
+import {
+  ThreadList,
+  ThreadListItems,
+  ThreadListNew,
+  ThreadListRoot,
+} from "@/components/assistant-ui/thread-list";
+import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningRoot,
+  ReasoningText,
+  ReasoningTrigger,
+} from "@/components/assistant-ui/reasoning";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  ComposerQuotePreview,
+  QuoteBlock,
+  SelectionToolbar,
+} from "@/components/assistant-ui/quote";
+import { ComposerTriggerPopover } from "@/components/assistant-ui/composer-trigger-popover";
+import { DirectiveText } from "@/components/assistant-ui/directive-text";
+import {
+  ActionBarMorePrimitive,
+  ActionBarPrimitive,
+  AuiIf,
+  type AssistantState,
+  BranchPickerPrimitive,
+  ComposerPrimitive,
+  ErrorPrimitive,
+  groupPartByType,
+  MessagePrimitive,
+  ThreadPrimitive,
+  unstable_useMentionAdapter,
+  unstable_useSlashCommandAdapter,
+  useAui,
+  useAuiState,
+  type Unstable_SlashCommand,
+} from "@assistant-ui/react";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChartColumnIcon,
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CloudSunIcon,
+  CodeXmlIcon,
+  CopyIcon,
+  DownloadIcon,
+  FileTextIcon,
+  GlobeIcon,
+  HelpCircleIcon,
+  LanguagesIcon,
+  LightbulbIcon,
+  MenuIcon,
+  MicIcon,
+  MoreHorizontalIcon,
+  PanelLeftIcon,
+  PencilIcon,
+  PencilLineIcon,
+  RefreshCwIcon,
+  ShareIcon,
+  SlashIcon,
+  SquareIcon,
+  WrenchIcon,
+} from "lucide-react";
+import { LexicalComposerInput } from "@assistant-ui/react-lexical";
+import { useState, type ComponentPropsWithoutRef, type FC, type ReactNode } from "react";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ModelSelector, type ModelOption } from "@/components/assistant-ui/model-selector";
+import { DEFAULT_MODEL_ID } from "@/constants/model";
+import { AssistantRuntimeProvider } from "@assistant-ui/react";
+import { useChatRuntime, AssistantChatTransport } from "@assistant-ui/react-ai-sdk";
 
-/* ───────────────────────────────────────────
-   Types
-   ─────────────────────────────────────────── */
+const models: ModelOption[] = [
+  {
+    id: "gemma-4-31b-it",
+    name: "Gemma 4 31B",
+    description: "Google's latest open model",
+  },
+];
 
-interface ToolPart {
-  type: string;
-  toolName?: string;
-  toolCallId?: string;
-  args?: unknown;
-  result?: unknown;
-  state?: string;
-  [key: string]: unknown;
-}
+// ── Logo ────────────────────────────────────────────────────────────
 
-interface TextPart {
-  type: "text";
-  text: string;
-  [key: string]: unknown;
-}
+const Logo: FC = () => {
+  return (
+    <div className="flex items-center gap-2 px-2 text-sm font-medium">
+      <div className="bg-sidebar-primary text-sidebar-primary-foreground flex size-5 items-center justify-center rounded text-xs font-bold">
+        B
+      </div>
+      <span className="text-foreground/90">BOA</span>
+    </div>
+  );
+};
 
-type MessagePart = TextPart | ToolPart;
+// ── Sidebar ─────────────────────────────────────────────────────────
 
-/* ───────────────────────────────────────────
-   Tool Call Card
-   ─────────────────────────────────────────── */
+const Sidebar: FC<{ collapsed?: boolean }> = ({ collapsed }) => {
+  return (
+    <aside
+      className={cn(
+        "flex h-full flex-col overflow-hidden transition-all duration-200",
+        collapsed ? "w-12" : "w-65",
+      )}
+    >
+      <div
+        className={cn(
+          "mt-2 flex h-12 shrink-0 items-center transition-[padding] duration-200",
+          collapsed ? "px-3.5" : "px-6",
+        )}
+      >
+        <div className="bg-sidebar-primary text-sidebar-primary-foreground flex size-5 shrink-0 items-center justify-center rounded text-xs font-bold">
+          B
+        </div>
+        <span
+          className={cn(
+            "text-foreground/90 ml-2 text-sm font-medium whitespace-nowrap transition-opacity duration-200",
+            collapsed && "opacity-0",
+          )}
+        >
+          BOA
+        </span>
+      </div>
+      <ThreadListRoot
+        className={cn(
+          "relative flex-1 overflow-y-auto transition-[padding,width] duration-200",
+          collapsed ? "w-12 px-2 pt-1" : "w-65 p-3",
+        )}
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <ThreadListNew
+                className={cn(
+                  "overflow-hidden transition-all duration-200",
+                  collapsed
+                    ? "w-8 gap-0 px-2 has-[>svg]:px-2"
+                    : "w-full gap-2 px-2.5 has-[>svg]:px-2.5",
+                )}
+                labelClassName={cn(
+                  "overflow-hidden transition-all duration-200",
+                  collapsed ? "max-w-0 opacity-0" : "max-w-24 opacity-100",
+                )}
+              />
+            }
+          />
+          {collapsed && (
+            <TooltipContent side="right">New Thread</TooltipContent>
+          )}
+        </Tooltip>
+        <ThreadListItems
+          aria-hidden={collapsed}
+          inert={collapsed}
+          className={cn(
+            "transition-[opacity,transform] duration-150",
+            collapsed
+              ? "pointer-events-none opacity-0 delay-50"
+              : "translate-x-0 opacity-100",
+          )}
+        />
+      </ThreadListRoot>
+    </aside>
+  );
+};
 
-function ToolCallCard({ part }: { part: ToolPart }) {
-  const [expanded, setExpanded] = useState(false);
+// ── MobileSidebar ───────────────────────────────────────────────────
 
-  const isComplete =
-    part.state === "result" || part.result !== undefined;
-  const toolRaw = (part.toolName || "") as string;
-  const displayName = toolRaw
-    ? toolRaw
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (c: string) => c.toUpperCase())
-    : "Tool";
+const MobileSidebar: FC = () => {
+  return (
+    <Sheet>
+      <SheetTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 md:hidden"
+          >
+            <MenuIcon className="size-4" />
+            <span className="sr-only">Toggle menu</span>
+          </Button>
+        }
+      />
+      <SheetContent side="left" className="flex w-70 flex-col p-0">
+        <div className="flex h-12 shrink-0 items-center px-4">
+          <Logo />
+        </div>
+        <div className="relative flex-1 overflow-y-auto p-3">
+          <ThreadList />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+};
+
+// ── ModelPicker ─────────────────────────────────────────────────────
+
+const ModelPicker: FC = () => {
+  return (
+    <ModelSelector
+      models={models}
+      defaultValue={DEFAULT_MODEL_ID}
+      variant="ghost"
+      size="sm"
+      className="h-7 rounded-full"
+    />
+  );
+};
+
+// ── ThreadTitle ─────────────────────────────────────────────────────
+
+const ThreadTitle: FC = () => {
+  const title = useAuiState(
+    (s) =>
+      s.threads.threadItems.find((t) => t.id === s.threads.mainThreadId)?.title,
+  );
 
   return (
-    <div className="my-2 first:mt-0 last:mb-0">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2.5 w-full px-3.5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-all text-left group"
+    <span className="min-w-0 truncate text-sm font-medium">
+      {title ?? "New Chat"}
+    </span>
+  );
+};
+
+// ── Header ──────────────────────────────────────────────────────────
+
+const Header: FC<{
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}> = ({ sidebarCollapsed, onToggleSidebar }) => {
+  return (
+    <header className="flex h-12 shrink-0 items-center gap-2 px-4">
+      <MobileSidebar />
+      <TooltipIconButton
+        variant="ghost"
+        size="icon"
+        tooltip={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+        side="bottom"
+        onClick={onToggleSidebar}
+        className="hidden size-8 md:flex"
       >
-        {/* Icon — spinner or checkmark */}
-        <span className="flex-shrink-0 w-5 h-5 relative">
-          {!isComplete ? (
-            <svg
-              className="animate-spin w-5 h-5 text-indigo-500"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="3"
-                className="opacity-20"
-              />
-              <path
-                d="M12 2a10 10 0 0 1 9.95 9"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                className="opacity-80"
-              />
-            </svg>
-          ) : (
-            <svg
-              className="w-5 h-5 text-emerald-500"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
+        <PanelLeftIcon className="size-4" />
+      </TooltipIconButton>
+      <ThreadTitle />
+      <TooltipIconButton
+        variant="ghost"
+        size="icon"
+        tooltip="Share"
+        side="bottom"
+        disabled
+        className="ml-auto size-8"
+      >
+        <ShareIcon className="size-4" />
+      </TooltipIconButton>
+    </header>
+  );
+};
+
+// ── Thread ──────────────────────────────────────────────────────────
+
+const isNewChatView = (s: AssistantState) =>
+  s.thread.messages.length === 0 &&
+  (!s.thread.isLoading || s.threads.isLoading);
+
+const Thread: FC = () => {
+  const isEmpty = useAuiState(isNewChatView);
+
+  return (
+    <ThreadPrimitive.Root
+      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      style={{
+        ["--thread-max-width" as string]: "44rem",
+        ["--composer-bg" as string]:
+          "color-mix(in oklab, var(--color-muted) 30%, var(--color-background))",
+        ["--composer-radius" as string]: "1.5rem",
+        ["--composer-padding" as string]: "8px",
+      }}
+    >
+      <ThreadPrimitive.Viewport
+        turnAnchor="top"
+        data-slot="aui_thread-viewport"
+        className={cn(
+          "relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth px-4 pt-4",
+          isEmpty && "justify-center",
+        )}
+      >
+        <AuiIf condition={isNewChatView}>
+          <ThreadWelcome />
+        </AuiIf>
+
+        <div
+          data-slot="aui_message-group"
+          className="mb-14 flex flex-col gap-y-6 empty:hidden"
+        >
+          <ThreadPrimitive.Messages>
+            {({ message }) => {
+              if (message.composer.isEditing) return <EditComposer />;
+              if (message.role === "user") return <UserMessage />;
+              return <AssistantMessage />;
+            }}
+          </ThreadPrimitive.Messages>
+        </div>
+
+        <ThreadPrimitive.ViewportFooter
+          className={cn(
+            "aui-thread-viewport-footer bg-background mx-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible pb-4 md:pb-6",
+            !isEmpty && "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
           )}
-        </span>
-
-        {/* Tool name */}
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {displayName}
-        </span>
-
-        {/* Status label */}
-        <span
-          className={`ml-auto text-xs font-medium ${
-            !isComplete ? "text-indigo-500" : "text-emerald-500"
-          }`}
         >
-          {!isComplete ? "Running…" : "Done"}
-        </span>
+          <ThreadScrollToBottom />
+          <Composer />
+          <AuiIf condition={isNewChatView}>
+            <div className="aui-thread-welcome-suggestions-shell min-h-19">
+              <AuiIf condition={(s) => s.composer.isEmpty}>
+                <ThreadSuggestions />
+              </AuiIf>
+            </div>
+          </AuiIf>
+        </ThreadPrimitive.ViewportFooter>
+      </ThreadPrimitive.Viewport>
 
-        {/* Chevron */}
-        <svg
-          className={`w-4 h-4 text-zinc-400 transition-transform duration-200 ${
-            expanded ? "rotate-180" : ""
-          }`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+      <SelectionToolbar />
+    </ThreadPrimitive.Root>
+  );
+};
+
+// ── Thread Scroll To Bottom ─────────────────────────────────────────
+
+const ThreadScrollToBottom: FC = () => {
+  return (
+    <ThreadPrimitive.ScrollToBottom asChild>
+      <TooltipIconButton
+        tooltip="Scroll to bottom"
+        variant="outline"
+        className="aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center rounded-full p-4 disabled:invisible"
+      >
+        <ArrowDownIcon />
+      </TooltipIconButton>
+    </ThreadPrimitive.ScrollToBottom>
+  );
+};
+
+// ── Thread Welcome ──────────────────────────────────────────────────
+
+const ThreadWelcome: FC = () => {
+  return (
+    <div className="aui-thread-welcome-root mx-auto mb-6 flex w-full max-w-(--thread-max-width) flex-col items-center px-4 text-center">
+      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
+        How can I help you today?
+      </h1>
+    </div>
+  );
+};
+
+// ── Suggestions ─────────────────────────────────────────────────────
+
+type SuggestionGroup = {
+  label: string;
+  icon: ReactNode;
+  options: { label: string; prompt: string }[];
+};
+
+const SUGGESTION_GROUPS: SuggestionGroup[] = [
+  {
+    label: "Weather",
+    icon: <CloudSunIcon />,
+    options: [
+      {
+        label: "in San Francisco",
+        prompt: "What's the weather in San Francisco?",
+      },
+      { label: "in Singapore", prompt: "What's the weather in Singapore?" },
+      { label: "in Tokyo", prompt: "What's the weather in Tokyo?" },
+      { label: "in London", prompt: "What's the weather in London?" },
+    ],
+  },
+  {
+    label: "Code",
+    icon: <CodeXmlIcon />,
+    options: [
+      {
+        label: "explain React hooks",
+        prompt: "Explain React hooks like useState and useEffect",
+      },
+      {
+        label: "write a debounce function",
+        prompt: "Write a debounce function in TypeScript",
+      },
+      {
+        label: "review a useEffect cleanup",
+        prompt: "Show me the right way to clean up a subscription in useEffect",
+      },
+    ],
+  },
+  {
+    label: "Write",
+    icon: <PencilLineIcon />,
+    options: [
+      {
+        label: "a birthday card message",
+        prompt:
+          "Help me write a birthday card message for a friend in the notepad",
+      },
+      {
+        label: "a product announcement",
+        prompt: "Draft a short product announcement for a new dark mode",
+      },
+      {
+        label: "release notes",
+        prompt:
+          "Write release notes for a bugfix release of a React component library",
+      },
+      {
+        label: "a PR description",
+        prompt:
+          "Write a pull request description for a change that adds keyboard shortcuts",
+      },
+    ],
+  },
+  {
+    label: "Analyze",
+    icon: <ChartColumnIcon />,
+    options: [
+      {
+        label: "React vs Vue vs Svelte",
+        prompt: "Compare React, Vue, and Svelte in a table",
+      },
+      {
+        label: "GDP of US, China, Japan",
+        prompt:
+          "Compare the GDP of the United States, China, and Japan in a table",
+      },
+      {
+        label: "pros and cons of SSR",
+        prompt: "What are the pros and cons of server-side rendering?",
+      },
+    ],
+  },
+  {
+    label: "Brainstorm",
+    icon: <LightbulbIcon />,
+    options: [
+      {
+        label: "side project ideas",
+        prompt: "Brainstorm five side project ideas for a React developer",
+      },
+      {
+        label: "names for a dev tool",
+        prompt: "Brainstorm names for a developer tools startup",
+      },
+      {
+        label: "talk topics",
+        prompt: "Brainstorm talk topics for a React meetup",
+      },
+    ],
+  },
+];
+
+const suggestionChipClass =
+  "aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors [&_svg]:size-4";
+
+const ThreadSuggestions: FC = () => {
+  const aui = useAui();
+  const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
+  const expandedGroup = SUGGESTION_GROUPS.find(
+    (group) => group.label === expandedLabel,
+  );
+
+  const sendPrompt = (prompt: string) => {
+    if (aui.thread().getState().isRunning) return;
+    aui.thread().append({
+      content: [{ type: "text", text: prompt }],
+      runConfig: aui.composer().getState().runConfig,
+    });
+  };
+
+  return (
+    <div className="aui-thread-welcome-suggestions flex w-full flex-col gap-2 px-4">
+      <div className="w-full scrollbar-none overflow-x-auto">
+        <div className="mx-auto flex w-max items-center gap-2">
+          {SUGGESTION_GROUPS.map((group) => (
+            <Button
+              key={group.label}
+              variant="ghost"
+              className={cn(
+                suggestionChipClass,
+                group.label === expandedLabel && "bg-muted",
+              )}
+              onClick={() =>
+                setExpandedLabel(
+                  group.label === expandedLabel ? null : group.label,
+                )
+              }
+            >
+              {group.icon}
+              {group.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {expandedGroup && (
+        <div
+          key={expandedGroup.label}
+          className="fade-in slide-in-from-top-1 animate-in w-full scrollbar-none overflow-x-auto duration-200"
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-
-      {/* Expanded JSON body */}
-      {expanded && (
-        <div className="mt-1.5 p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/30 overflow-x-auto">
-          <pre className="text-xs text-zinc-600 dark:text-zinc-400 font-mono whitespace-pre-wrap leading-relaxed">
-            {JSON.stringify(
-              isComplete ? part.result : part.args,
-              null,
-              2,
-            )}
-          </pre>
+          <div className="mx-auto flex w-max items-center gap-2">
+            {expandedGroup.options.map((option) => (
+              <Button
+                key={option.label}
+                variant="ghost"
+                className={suggestionChipClass}
+                onClick={() => sendPrompt(option.prompt)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
+};
+
+// ── Slash Commands ──────────────────────────────────────────────────
+
+const slashCommands: readonly Unstable_SlashCommand[] = [
+  {
+    id: "summarize",
+    description: "Summarize the conversation",
+    icon: "FileText",
+    execute: () => console.log("[base example] /summarize invoked"),
+  },
+  {
+    id: "translate",
+    description: "Translate text to another language",
+    icon: "Languages",
+    execute: () => console.log("[base example] /translate invoked"),
+  },
+  {
+    id: "search",
+    description: "Search the web for information",
+    icon: "Globe",
+    execute: () => console.log("[base example] /search invoked"),
+  },
+  {
+    id: "help",
+    description: "List available commands",
+    icon: "HelpCircle",
+    execute: () => console.log("[base example] /help invoked"),
+  },
+];
+
+const slashIconMap: Record<string, FC<{ className?: string }>> = {
+  FileText: FileTextIcon,
+  Languages: LanguagesIcon,
+  Globe: GlobeIcon,
+  HelpCircle: HelpCircleIcon,
+};
+
+function DirectiveChip(props: ComponentPropsWithoutRef<typeof DirectiveText>) {
+  const { directiveType, directiveId, label } = props;
+  return <DirectiveText directiveType={directiveType} directiveId={directiveId} label={label} />;
 }
 
-/* ───────────────────────────────────────────
-   Loading Dots
-   ─────────────────────────────────────────── */
+// ── Composer ────────────────────────────────────────────────────────
 
-function LoadingDots() {
+const Composer: FC = () => {
+  const mention = unstable_useMentionAdapter({ fallbackIcon: WrenchIcon });
+  const slash = unstable_useSlashCommandAdapter({
+    commands: slashCommands,
+    iconMap: slashIconMap,
+    fallbackIcon: SlashIcon,
+  });
+
   return (
-    <div className="flex items-center gap-1.5">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-2 h-2 bg-zinc-400 dark:bg-zinc-500 rounded-full animate-pulse-dot"
-          style={{ animationDelay: `${i * 0.16}s` }}
+    <ComposerPrimitive.Unstable_TriggerPopoverRoot>
+      <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+        <ComposerPrimitive.AttachmentDropzone asChild>
+          <div
+            data-slot="aui_composer-shell"
+            className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none"
+          >
+            <ComposerQuotePreview />
+            <ComposerAttachments />
+            <LexicalComposerInput
+              directiveChip={DirectiveChip}
+              placeholder="Send a message... (@ to mention, / for commands)"
+              className="aui-composer-input [&_.aui-lexical-placeholder]:text-muted-foreground/80 relative max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none [&_.aui-directive-chip]:inline-flex [&_.aui-directive-chip]:items-baseline [&_.aui-directive-chip]:gap-1 [&_.aui-directive-chip]:rounded-md [&_.aui-directive-chip]:bg-blue-100 [&_.aui-directive-chip]:px-1.5 [&_.aui-directive-chip]:py-0.5 [&_.aui-directive-chip]:text-[13px] [&_.aui-directive-chip]:leading-none [&_.aui-directive-chip]:font-medium [&_.aui-directive-chip]:text-blue-700 dark:[&_.aui-directive-chip]:bg-blue-900/50 dark:[&_.aui-directive-chip]:text-blue-300 [&_.aui-directive-chip-icon]:self-center [&_.aui-lexical-input]:min-h-lh [&_.aui-lexical-input]:outline-none [&_.aui-lexical-placeholder]:pointer-events-none [&_.aui-lexical-placeholder]:absolute [&_.aui-lexical-placeholder]:top-0 [&_.aui-lexical-placeholder]:right-0 [&_.aui-lexical-placeholder]:left-0 [&_.aui-lexical-placeholder]:truncate [&_.aui-lexical-placeholder]:px-2.5 [&_.aui-lexical-placeholder]:py-1"
+            />
+            <ComposerAction />
+          </div>
+        </ComposerPrimitive.AttachmentDropzone>
+
+        <ComposerTriggerPopover char="@" {...mention} />
+
+        <ComposerTriggerPopover
+          char="/"
+          {...slash}
+          emptyItemsLabel="No matching commands"
         />
-      ))}
+      </ComposerPrimitive.Root>
+    </ComposerPrimitive.Unstable_TriggerPopoverRoot>
+  );
+};
+
+// ── Composer Action ─────────────────────────────────────────────────
+
+const ComposerAction: FC = () => {
+  return (
+    <div className="aui-composer-action-wrapper relative flex items-center justify-between">
+      <div className="flex items-center gap-1">
+        <ComposerAddAttachment />
+        <ModelPicker />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <AuiIf condition={(s) => s.thread.capabilities.dictation}>
+          <AuiIf condition={(s) => s.composer.dictation == null}>
+            <ComposerPrimitive.Dictate asChild>
+              <TooltipIconButton
+                tooltip="Voice input"
+                side="bottom"
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="aui-composer-dictate size-7 rounded-full"
+                aria-label="Start voice input"
+              >
+                <MicIcon className="aui-composer-dictate-icon size-4" />
+              </TooltipIconButton>
+            </ComposerPrimitive.Dictate>
+          </AuiIf>
+          <AuiIf condition={(s) => s.composer.dictation != null}>
+            <ComposerPrimitive.StopDictation asChild>
+              <TooltipIconButton
+                tooltip="Stop dictation"
+                side="bottom"
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
+                aria-label="Stop voice input"
+              >
+                <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
+              </TooltipIconButton>
+            </ComposerPrimitive.StopDictation>
+          </AuiIf>
+        </AuiIf>
+        <AuiIf condition={(s) => !s.thread.isRunning}>
+          <ComposerPrimitive.Send asChild>
+            <TooltipIconButton
+              tooltip="Send message"
+              side="bottom"
+              type="button"
+              variant="default"
+              size="icon"
+              className="aui-composer-send size-7 rounded-full"
+              aria-label="Send message"
+            >
+              <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
+            </TooltipIconButton>
+          </ComposerPrimitive.Send>
+        </AuiIf>
+        <AuiIf condition={(s) => s.thread.isRunning}>
+          <ComposerPrimitive.Cancel asChild>
+            <Button
+              type="button"
+              variant="default"
+              size="icon"
+              className="aui-composer-cancel size-7 rounded-full"
+              aria-label="Stop generating"
+            >
+              <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
+            </Button>
+          </ComposerPrimitive.Cancel>
+        </AuiIf>
+      </div>
     </div>
   );
-}
+};
 
-/* ───────────────────────────────────────────
-   Suggestion Card
-   ─────────────────────────────────────────── */
+// ── Message Error ───────────────────────────────────────────────────
 
-const SUGGESTIONS = [
-  {
-    icon: "📦",
-    label: "Check inventory levels",
-    query: "Check inventory levels across all warehouses",
-  },
-  {
-    icon: "📊",
-    label: "Analyze sales trends",
-    query: "Show me the latest sales trends and projections",
-  },
-  {
-    icon: "💰",
-    label: "Show expenses",
-    query: "What are our current operating expenses?",
-  },
-  {
-    icon: "🏭",
-    label: "Evaluate suppliers",
-    query: "Evaluate our top suppliers by reliability and cost",
-  },
-] as const;
+const MessageError: FC = () => {
+  return (
+    <MessagePrimitive.Error>
+      <ErrorPrimitive.Root className="aui-message-error-root border-destructive bg-destructive/10 text-destructive dark:bg-destructive/5 mt-2 rounded-md border p-3 text-sm dark:text-red-200">
+        <ErrorPrimitive.Message className="aui-message-error-message line-clamp-2" />
+      </ErrorPrimitive.Root>
+    </MessagePrimitive.Error>
+  );
+};
 
-/* ───────────────────────────────────────────
-   Chat (main export)
-   ─────────────────────────────────────────── */
+// ── Assistant Working Indicator ─────────────────────────────────────
 
-export default function Chat() {
-  const [input, setInput] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const { messages, sendMessage, status, stop, error, regenerate } =
-    useChat({
-      transport: new DefaultChatTransport({ api: "/api/chat" }),
-    });
-
-  const isStreaming =
-    status === "submitted" || status === "streaming";
-  const isEmpty =
-    messages.length === 0 && status === "ready" && !error;
-
-  /* ── Auto-scroll ── */
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  /* ── Refocus input when not streaming ── */
-  useEffect(() => {
-    if (!isStreaming && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isStreaming]);
-
-  /* ── Submit ── */
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isStreaming) return;
-    sendMessage({ text: input });
-    setInput("");
-  };
-
-  const handleSuggestion = (query: string) => {
-    sendMessage({ text: query });
-  };
-
-  /* ── Helpers ── */
-
-  const getTextParts = (parts: MessagePart[] | undefined): TextPart[] =>
-    (parts ?? []).filter(
-      (p): p is TextPart => p.type === "text",
+const AssistantWorkingIndicator: FC = () => {
+  const isEmpty = useAuiState((s) => s.message.content.length === 0);
+  if (isEmpty) {
+    return (
+      <span
+        data-slot="aui_assistant-message-indicator"
+        className="text-muted-foreground inline-flex items-center gap-2 align-middle"
+      >
+        <DotMatrix state="connecting" aria-hidden />
+        <span className="text-sm">Connecting</span>
+      </span>
     );
+  }
+  return (
+    <span
+      data-slot="aui_assistant-message-indicator"
+      className="animate-pulse font-sans"
+      aria-label="Assistant is working"
+    >
+      {"●"}
+    </span>
+  );
+};
 
-  const getToolParts = (parts: MessagePart[] | undefined): ToolPart[] =>
-    (parts ?? []).filter(
-      (p): p is ToolPart =>
-        typeof p.type === "string" && p.type.startsWith("tool-"),
-    );
+// ── Assistant Message ───────────────────────────────────────────────
 
-  /* ──── Render ──── */
+const AssistantMessage: FC = () => {
+  const ACTION_BAR_PT = "pt-1.5";
+  const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
 
   return (
-    <div className="flex flex-col h-full w-full max-w-4xl mx-auto">
-      {/* ── Messages area ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 scroll-smooth">
-        {isEmpty ? (
-          /* ══════ EMPTY STATE ══════ */
-          <div className="flex flex-col items-center justify-center min-h-full text-center px-4">
-            {/* Logo icon */}
-            <div className="mb-6">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                <svg
-                  className="w-8 h-8 text-white"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 16v-4M12 8h.01" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">
-                How can I help you today?
-              </h2>
-              <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto">
-                Ask me anything about your business operations —
-                inventory, sales, expenses, suppliers, and more.
-              </p>
-            </div>
-
-            {/* Suggestion grid */}
-            <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => handleSuggestion(s.query)}
-                  className="flex items-center gap-2.5 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-sm hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 transition-all text-left group"
-                >
-                  <span className="text-lg">{s.icon}</span>
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                    {s.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          /* ══════ MESSAGE LIST ══════ */
-          <div className="space-y-6">
-            {messages.map((m) => {
-              const textParts = getTextParts(m.parts as MessagePart[]);
-              const toolParts = getToolParts(m.parts as MessagePart[]);
-
-              if (m.role === "user") {
+    <MessagePrimitive.Root
+      data-slot="aui_assistant-message-root"
+      data-role="assistant"
+      className="fade-in slide-in-from-bottom-1 animate-in relative mx-auto w-full max-w-(--thread-max-width) duration-150"
+    >
+      <div
+        data-slot="aui_assistant-message-content"
+        className="text-foreground px-2 leading-relaxed wrap-break-word"
+      >
+        <MessagePrimitive.GroupedParts
+          groupBy={groupPartByType({
+            reasoning: ["group-chainOfThought", "group-reasoning"],
+            "tool-call": ["group-chainOfThought", "group-tool"],
+            "standalone-tool-call": [],
+          })}
+        >
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-chainOfThought":
+                return <div data-slot="aui_chain-of-thought">{children}</div>;
+              case "group-tool":
                 return (
-                  <div key={m.id} className="flex justify-end">
-                    <div className="max-w-[80%] rounded-2xl px-4 py-2.5 bg-indigo-600 text-white shadow-sm">
-                      {textParts.map((p, i) => (
-                        <p
-                          key={i}
-                          className="text-sm leading-relaxed whitespace-pre-wrap"
-                        >
-                          {p.text}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
+                  <ToolGroupRoot variant="ghost">
+                    <ToolGroupTrigger
+                      count={part.indices.length}
+                      active={part.status.type === "running"}
+                    />
+                    <ToolGroupContent>{children}</ToolGroupContent>
+                  </ToolGroupRoot>
+                );
+              case "group-reasoning": {
+                const running = part.status.type === "running";
+                return (
+                  <ReasoningRoot defaultOpen={running}>
+                    <ReasoningTrigger active={running} />
+                    <ReasoningContent aria-busy={running}>
+                      <ReasoningText>{children}</ReasoningText>
+                    </ReasoningContent>
+                  </ReasoningRoot>
                 );
               }
-
-              /* Assistant message */
-              return (
-                <div key={m.id}>
-                  {/* Tool call cards */}
-                  {toolParts.length > 0 && (
-                    <div className="mb-3 space-y-1">
-                      {toolParts.map((part, i) => (
-                        <ToolCallCard
-                          key={part.toolCallId ?? i}
-                          part={part}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Text content */}
-                  {textParts.length > 0 && (
-                    <div className="flex justify-start">
-                      <div className="max-w-[80%] rounded-2xl px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 shadow-sm">
-                        {textParts.map((p, i) => (
-                          <p
-                            key={i}
-                            className="text-sm leading-relaxed whitespace-pre-wrap"
-                          >
-                            {p.text}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* ── Loading dots (streaming indicator) ── */}
-            {isStreaming && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl px-4 py-3 bg-zinc-100 dark:bg-zinc-800">
-                  <LoadingDots />
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-        )}
+              case "text":
+                return <MarkdownText />;
+              case "reasoning":
+                return <Reasoning {...part} />;
+              case "tool-call":
+                return part.toolUI ?? <ToolFallback {...part} />;
+              case "indicator":
+                return <AssistantWorkingIndicator />;
+              case "data":
+                return part.dataRendererUI;
+              default:
+                return null;
+            }
+          }}
+        </MessagePrimitive.GroupedParts>
+        <MessageError />
       </div>
 
-      {/* ── Error banner ── */}
-      {error && (
-        <div className="px-4 pb-2">
-          <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 p-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <svg
-                className="w-4 h-4 text-red-500 flex-shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+      <div
+        data-slot="aui_assistant-message-footer"
+        className={cn("ml-2 flex items-center", ACTION_BAR_HEIGHT)}
+      >
+        <BranchPicker />
+        <AssistantActionBar />
+      </div>
+    </MessagePrimitive.Root>
+  );
+};
+
+// ── Assistant Action Bar ────────────────────────────────────────────
+
+const AssistantActionBar: FC = () => {
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide="not-last"
+      className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ml-1 flex gap-1 duration-200"
+    >
+      <ActionBarPrimitive.Copy asChild>
+        <TooltipIconButton tooltip="Copy">
+          <AuiIf condition={(s) => s.message.isCopied}>
+            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
+          </AuiIf>
+          <AuiIf condition={(s) => !s.message.isCopied}>
+            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
+          </AuiIf>
+        </TooltipIconButton>
+      </ActionBarPrimitive.Copy>
+      <ActionBarPrimitive.Reload asChild>
+        <TooltipIconButton tooltip="Refresh">
+          <RefreshCwIcon />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Reload>
+      <ActionBarMorePrimitive.Root>
+        <ActionBarMorePrimitive.Trigger asChild>
+          <TooltipIconButton
+            tooltip="More"
+            className="data-[state=open]:bg-accent"
+          >
+            <MoreHorizontalIcon />
+          </TooltipIconButton>
+        </ActionBarMorePrimitive.Trigger>
+        <ActionBarMorePrimitive.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="aui-action-bar-more-content bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm"
+        >
+          <ActionBarPrimitive.ExportMarkdown asChild>
+            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
+              <DownloadIcon className="size-4" />
+              Export as Markdown
+            </ActionBarMorePrimitive.Item>
+          </ActionBarPrimitive.ExportMarkdown>
+        </ActionBarMorePrimitive.Content>
+      </ActionBarMorePrimitive.Root>
+      <MessageTiming />
+    </ActionBarPrimitive.Root>
+  );
+};
+
+// ── User Message ────────────────────────────────────────────────────
+
+const UserMessage: FC = () => {
+  return (
+    <MessagePrimitive.Root
+      data-slot="aui_user-message-root"
+      data-role="user"
+      className="fade-in slide-in-from-bottom-1 animate-in mx-auto grid w-full max-w-(--thread-max-width) auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [&:where(>*)]:col-start-2"
+    >
+      <UserMessageAttachments />
+
+      <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
+        <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
+          <MessagePrimitive.Quote>
+            {(quote) => <QuoteBlock {...quote} />}
+          </MessagePrimitive.Quote>
+          <MessagePrimitive.Parts />
+        </div>
+        <div className="aui-user-action-bar-wrapper absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
+          <UserActionBar />
+        </div>
+      </div>
+
+      <BranchPicker
+        data-slot="aui_user-branch-picker"
+        className="col-span-full col-start-1 row-start-3 -mr-1 justify-end"
+      />
+    </MessagePrimitive.Root>
+  );
+};
+
+// ── User Action Bar ─────────────────────────────────────────────────
+
+const UserActionBar: FC = () => {
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide="not-last"
+      className="aui-user-action-bar-root flex flex-col items-end"
+    >
+      <ActionBarPrimitive.Edit asChild>
+        <TooltipIconButton tooltip="Edit" className="aui-user-action-edit">
+          <PencilIcon />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Edit>
+    </ActionBarPrimitive.Root>
+  );
+};
+
+// ── Edit Composer ───────────────────────────────────────────────────
+
+const EditComposer: FC = () => {
+  return (
+    <MessagePrimitive.Root
+      data-slot="aui_edit-composer-wrapper"
+      className="mx-auto flex w-full max-w-(--thread-max-width) flex-col px-2"
+    >
+      <ComposerPrimitive.Unstable_TriggerPopoverRoot>
+        <ComposerPrimitive.Root className="aui-edit-composer-root border-border/60 dark:border-muted-foreground/15 ml-auto flex w-full max-w-[85%] flex-col rounded-(--composer-radius) border bg-(--composer-bg) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none">
+          <LexicalComposerInput
+            directiveChip={DirectiveChip}
+            autoFocus
+            className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none [&_.aui-directive-chip]:inline-flex [&_.aui-directive-chip]:items-baseline [&_.aui-directive-chip]:gap-1 [&_.aui-directive-chip]:rounded-md [&_.aui-directive-chip]:bg-blue-100 [&_.aui-directive-chip]:px-1.5 [&_.aui-directive-chip]:py-0.5 [&_.aui-directive-chip]:text-[13px] [&_.aui-directive-chip]:leading-none [&_.aui-directive-chip]:font-medium [&_.aui-directive-chip]:text-blue-700 dark:[&_.aui-directive-chip]:bg-blue-900/50 dark:[&_.aui-directive-chip]:text-blue-300 [&_.aui-directive-chip-icon]:self-center [&_.aui-lexical-input]:min-h-lh [&_.aui-lexical-input]:outline-none"
+          />
+          <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
+            <ComposerPrimitive.Cancel asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-full px-3.5"
               >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span className="text-sm text-red-700 dark:text-red-300 truncate">
-                {error.message ?? "Something went wrong. Please try again."}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => regenerate()}
-              className="text-sm font-semibold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 flex-shrink-0"
-            >
-              Retry
-            </button>
+                Cancel
+              </Button>
+            </ComposerPrimitive.Cancel>
+            <ComposerPrimitive.Send asChild>
+              <Button size="sm" className="h-8 rounded-full px-3.5">
+                Update
+              </Button>
+            </ComposerPrimitive.Send>
+          </div>
+        </ComposerPrimitive.Root>
+      </ComposerPrimitive.Unstable_TriggerPopoverRoot>
+    </MessagePrimitive.Root>
+  );
+};
+
+// ── Branch Picker ───────────────────────────────────────────────────
+
+const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
+  className,
+  ...rest
+}) => {
+  return (
+    <BranchPickerPrimitive.Root
+      hideWhenSingleBranch
+      className={cn(
+        "aui-branch-picker-root text-muted-foreground mr-2 -ml-2 inline-flex items-center text-xs",
+        className,
+      )}
+      {...rest}
+    >
+      <BranchPickerPrimitive.Previous asChild>
+        <TooltipIconButton tooltip="Previous">
+          <ChevronLeftIcon />
+        </TooltipIconButton>
+      </BranchPickerPrimitive.Previous>
+      <span className="aui-branch-picker-state font-medium">
+        <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
+      </span>
+      <BranchPickerPrimitive.Next asChild>
+        <TooltipIconButton tooltip="Next">
+          <ChevronRightIcon />
+        </TooltipIconButton>
+      </BranchPickerPrimitive.Next>
+    </BranchPickerPrimitive.Root>
+  );
+};
+
+// ── Main Chat Component ─────────────────────────────────────────────
+
+export default function Chat() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const runtime = useChatRuntime({
+    transport: new AssistantChatTransport({ api: "/api/chat" }),
+  });
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <div className="bg-muted/30 flex h-dvh w-full">
+        <div className="hidden md:block">
+          <Sidebar collapsed={sidebarCollapsed} />
+        </div>
+        <div className="flex flex-1 flex-col overflow-hidden p-2 md:pl-0">
+          <div className="bg-background flex flex-1 flex-col overflow-hidden rounded-lg">
+            <Header
+              sidebarCollapsed={sidebarCollapsed}
+              onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
+            <main className="flex-1 overflow-hidden">
+              <Thread />
+            </main>
           </div>
         </div>
-      )}
-
-      {/* ── Input area ── */}
-      <div className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3">
-        <form onSubmit={handleSubmit} className="flex gap-2 items-center">
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a business question…"
-              disabled={isStreaming}
-              className="w-full rounded-xl border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-2.5 pr-10 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              autoComplete="off"
-            />
-          </div>
-
-          {isStreaming ? (
-            <button
-              type="button"
-              onClick={stop}
-              className="rounded-xl px-4 py-2.5 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <rect x="6" y="6" width="12" height="12" rx="1" />
-              </svg>
-              Stop
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              className="rounded-xl px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-sm shadow-indigo-500/10"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-              Send
-            </button>
-          )}
-        </form>
       </div>
-    </div>
+    </AssistantRuntimeProvider>
   );
 }
